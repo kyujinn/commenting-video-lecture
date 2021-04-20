@@ -1,8 +1,11 @@
 import cv2
 import os
+import sys
 import time
 import datetime
 from pytesseract import *
+
+from pdf2image import convert_from_path #pdf2img
 
 # 강의 동영상 내 전환시점 파악을 위한 라이브러리 호출
 from scenedetect import VideoManager, SceneManager, StatsManager
@@ -12,20 +15,51 @@ from scenedetect.scene_manager import save_images, write_scene_list_html
 # 경로 설정
 # !!!!! 경로 내에 한글 디렉토리 및 한글 파일이 있으면 제대로 동작하지 않음 유의 !!!!!
 default_path = "Datamining/"
-# pdf_path =
-stats_path = default_path + "captureResult.csv"
+pdf_path = default_path + "lecture_doc.pdf"
 video_path = default_path + "lecture_video.mp4"
-capture_path = default_path + "capture/" #타 디렉토리를 거칠 시 이미지 저장이 안됨 Why? (예: 데이터마이닝개론/capture)
+capture_path = default_path + "capture/"
 slide_path = default_path + "slide/"
 txt_path = default_path + "txt/"
 tts_path = default_path + "tts/"
 
-#def pdf2png(): #pdf 파일을 기반으로 이미지를 생성하는 함수 #이미지 형식 png로할지 jpg로 할지 정해야함 (일단 png로 코딩해놓았음)
-
 #def txt2TTS(): #텍스트 파일을 기반으로 TTS 음성파일을 생성하는 함수
 
+#의도한바와 같이 정렬될 수 있도록 파일번호 수정하여 반환하는 함수
+def set_Filenum_of_Name(filenum):
+    fileName=""
+
+    if (filenum<10): #파일번호가 한자리일때
+        fileName = "00" + str(filenum)
+    elif (filenum >=10 and filenum <100): #파일번호가 두자리일때
+        fileName = "0" + str(fileName)
+    elif (filenum >=100 and filenum <1000): #파일번호가 세자리일때
+        fileName = str(filenum)
+    else:
+        sys.exit(">>>", "PDF 파일이 너무 큽니다 - 999장 이상")
+
+    return fileName
+
+def pdf2jpg(): #pdf 파일을 기반으로 이미지(jpg)를 생성하는 함수
+
+    print("\n[PDF2IMG 시작] PDF2JPG 이미지 변환을 시작합니다")
+
+    pages = convert_from_path(pdf_path, poppler_path='C:/Release-21.03.0/poppler-21.03.0/Library/bin')
+    print(">>> 인식된 강의자료 페이지 수:", len(pages))
+
+    # 디렉토리 유무 검사 및 디렉토리 생성
+    try:
+        if not os.path.exists(slide_path):  # 디렉토리 없을 시 생성
+            os.makedirs(slide_path)
+    except OSError:
+        print('Error: Creating directory. ' + txt_path)  # 디렉토리 생성 오류
+
+    for i, page in enumerate(pages):
+        page.save(slide_path + "slide_" + set_Filenum_of_Name(i+1) + ".jpg", "JPEG")
+
+    print("[PDF2IMG 종료] PDF2JPG 이미지 변환을 종료합니다\n")
+
 def calOrb_CapNSlide():
-    print("[ORB 계산 시작] 캡쳐 화면과 슬라이드 이미지의 유사도 계산을 시작합니다 ------------------------------ ")
+    print("\n[ORB 계산 시작] 캡쳐 화면과 슬라이드 이미지의 유사도 계산을 시작합니다")
 
     # 장면전환 캡쳐 이미지 목록 로드
     capture_list = os.listdir(capture_path) #.jpg 형식
@@ -33,25 +67,20 @@ def calOrb_CapNSlide():
     capture_list.sort()
 
     # PDF 슬라이드 변환 이미지 목록 로드
-    slide_list = os.listdir(slide_path) #.png 형식
-    slide_list = [slide for slide in slide_list if slide.endswith(".png")]
+    slide_list = os.listdir(slide_path) #.jpg 형식
+    slide_list = [slide for slide in slide_list if slide.endswith(".jpg")]
     slide_list.sort()
 
     #ORB 계산
     tf_timeline_idx = [] #장면전환 된 타임라인을 인덱싱하기 위한 이미지 인덱스 번호 저장
     for slide in slide_list:
-        #print(">>>>", slide_path + slide)
+        print(">>>", slide_path + slide)
         slide_img = cv2.imread(slide_path + slide, None)
 
         max_match_point = -1
         max_match_point_idx = -1
         for idx, capture in enumerate(capture_list):
 
-            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! #
-            if idx in tf_timeline_idx: #앞서 다른 슬라이드가 선택한 이미지는 뒤에 슬라이드는 스킵할 수 있도록 함 (그래도 걸린다면..?)
-                continue
-
-            #print(capture_path + capture)
             capture_img = cv2.imread(capture_path + capture, None)
 
             orb = cv2.ORB_create()
@@ -64,7 +93,7 @@ def calOrb_CapNSlide():
             matches = bf.match(des1, des2)
             matches = sorted(matches, key=lambda x: x.distance)
             count = len(matches);
-            #print(count, "vs", max_match_point)
+            print(">>> >>>",capture_path + capture, ":", count, "vs", max_match_point)
             if count > max_match_point:
 
                 max_match_point = count
@@ -72,18 +101,18 @@ def calOrb_CapNSlide():
 
         tf_timeline_idx.append(max_match_point_idx)
 
-    print(tf_timeline_idx)
-    print("[ORB 계산 종료] 캡쳐 화면과 슬라이드 이미지의 유사도 계산을 종료합니다 ------------------------------ ")
+    #print(tf_timeline_idx)
+    print("[ORB 계산 종료] 캡쳐 화면과 슬라이드 이미지의 유사도 계산을 종료합니다\n")
 
     return tf_timeline_idx
 
 def ocr_img2txt():
-    print("[OCR 변환 시작] 슬라이드 이미지를 텍스트로 변환을 시작합니다 ------------------------------ ")
+    print("\n[OCR 변환 시작] 슬라이드 이미지를 텍스트로 변환을 시작합니다")
 
     slide_list = os.listdir(slide_path)
-    slide_list = [slide for slide in slide_list if slide.endswith(".png")] #png로 끝나는 것만 가져오기
+    slide_list = [slide for slide in slide_list if slide.endswith(".jpg")] #jpg로 끝나는 것만 가져오기
     slide_list.sort()
-    print("슬라이드 이미지 목록:", slide_list)
+    print(">>> 슬라이드 이미지 목록:", slide_list)
 
     #디렉토리 유무 검사 및 디렉토리 생성
     try:
@@ -93,9 +122,12 @@ def ocr_img2txt():
         print('Error: Creating directory. ' + txt_path) #디렉토리 생성 오류
 
     language = "kor+eng"  # ocr 언어 설정
-    for slide in slide_list:
+    for idx, slide in enumerate(slide_list):
         img_file = slide_path + slide  # 번역할 슬라이드 이미지
-        txtFile = open(txt_path + img_file[-5:-4] + ".txt", "w", -1, "utf-8")  # 번역한 내용을 저장할 텍스트 파일
+        print(">>> >>>", slide, "슬라이드 OCR 변환")
+        txtFile = open(txt_path + img_file[-7:-4] + ".txt", "w", -1, "utf-8")  # 번역한 내용을 저장할 텍스트 파일
+        
+        #해당 위치에 변환 텍스트 필터링 기능이 들어가야 함
 
         txtFile.write(img_file[-5:-4] + "번 슬라이드 해설 시작" + "\n" + "\n")
         result = pytesseract.image_to_string(img_file, lang=language) #언어 옵션(kor+eng) 지정 및 psm 옵션 지정 안함
@@ -104,10 +136,10 @@ def ocr_img2txt():
 
         txtFile.close()
 
-    print("[OCR 변환 종료] 슬라이드 이미지를 텍스트로 변환을 종료합니다 ------------------------------ ")
+    print("[OCR 변환 종료] 슬라이드 이미지를 텍스트로 변환을 종료합니다\n")
 
 def capture_video():
-    print("[전환장면 캡처 시작] 영상 내 전환 시점을 기준으로 이미지 추출을 시작합니다 ------------------------------ ")
+    print("\n[전환장면 캡처 시작] 영상 내 전환 시점을 기준으로 이미지 추출을 시작합니다")
 
     video_manager = VideoManager([video_path])
     stats_manager = StatsManager()
@@ -122,7 +154,7 @@ def capture_video():
     scene_manager.detect_scenes(frame_source=video_manager)
 
     scene_list = scene_manager.get_scene_list()
-    print(f'{len(scene_list)} scenes detected!') # 전환 인식이 된 장면의 수
+    print(">>>",f'{len(scene_list)} scenes detected!') # 전환 인식이 된 장면의 수
 
     save_images(
         scene_list,
@@ -141,17 +173,23 @@ def capture_video():
         #print(f'{start.get_seconds()} - {end.get_seconds()}')
         captured_timeline_list.append(start.get_seconds())
 
-    print("[전환장면 캡처 종료] 영상 내 전환 시점을 기준으로 이미지 추출을 종료합니다 ------------------------------ ")
+    print("[전환장면 캡처 종료] 영상 내 전환 시점을 기준으로 이미지 추출을 종료합니다\n")
     return captured_timeline_list
 
 if __name__ == '__main__':
-    time_list =[] #장면 추출 시간, OCR 시간, ORB 유사도 시간, 총 시간
+    time_list =[] #pdf 2 image, 장면 추출 시간, OCR 시간, ORB 유사도 시간, 총 시간
     total_start = time.time()
+
+    #PDF to Image
+    tmp_start = time.time()
+    pdf2jpg()
+    tmp_sec = time.time() - tmp_start
+    tmp_times = str(datetime.timedelta(seconds=tmp_sec)).split(".")
+    time_list.append(tmp_times[0])
 
     #장면전환 추출
     tmp_start = time.time()
     captured_timeline_list = capture_video()
-    print(captured_timeline_list)
     tmp_sec = time.time() - tmp_start
     tmp_times = str(datetime.timedelta(seconds=tmp_sec)).split(".")
     time_list.append(tmp_times[0])
@@ -170,15 +208,17 @@ if __name__ == '__main__':
     tmp_times = str(datetime.timedelta(seconds=tmp_sec)).split(".")
     time_list.append(tmp_times[0])
 
-    for idx in tf_timeline_idx:
-        print(captured_timeline_list[idx])
+    for i, idx_val in enumerate(tf_timeline_idx):
+        print("["+str(i+1)+"번째 슬라이드 등장시간]", int(captured_timeline_list[idx_val]/60) ,"분",
+              round(captured_timeline_list[idx_val]%60), "초")
 
     total_sec = time.time() - total_start
     total_times = str(datetime.timedelta(seconds=total_sec)).split(".")
     time_list.append(total_times[0])
 
     # 장면 추출 시간, OCR 시간, ORB 유사도 시간, 총 시간
-    print("장면 추출 시간:", time_list[0])
-    print("OCR 시간:", time_list[1])
-    print("ORB 시간:", time_list[2])
-    print(">>> 총 소요 시간:", time_list[3])
+    print("\n■ PDF2JPG 추출 시간:", time_list[0])
+    print("■ 장면 추출 시간:", time_list[1])
+    print("■ OCR 시간:", time_list[2])
+    print("■ ORB 시간:", time_list[3])
+    print("■□■ 총 소요 시간:", time_list[4])
