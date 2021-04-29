@@ -5,9 +5,11 @@ import time
 import datetime
 import pandas as pd
 import numpy as np
+import re
 from pytesseract import *
 
 from pdf2image import convert_from_path  # pdf2img
+from gtts import gTTS
 
 pdf2image_module_path = "data/Release-21.03.0/poppler-21.03.0/Library/bin/"
 
@@ -18,7 +20,7 @@ from scenedetect.scene_manager import save_images, write_scene_list_html
 
 # 경로 설정
 # !!!!! 경로 내에 한글 디렉토리 및 한글 파일이 있으면 제대로 동작하지 않음 유의 !!!!!
-default_path = "DeepLearning/"
+default_path = "Datamining/"
 pdf_path = default_path + "lecture_doc.pdf"
 video_path = default_path + "lecture_video.mp4"
 capture_path = default_path + "capture/"
@@ -30,8 +32,33 @@ tts_path = default_path + "tts/"
 df = pd.DataFrame()
 save_path = default_path + "transform_timeline_result.csv"
 
+def txt2TTS(): #텍스트 파일을 기반으로 TTS 음성파일을 생성하는 함수
 
-# def txt2TTS(): #텍스트 파일을 기반으로 TTS 음성파일을 생성하는 함수
+    print("\n[TTS 시작] TTS 변환을 시작합니다")
+    txt_list = os.listdir(txt_path)
+    txt_list = [txt_file for txt_file in txt_list if txt_file.endswith(".txt")] #jpg로 끝나는 것만 가져오기
+    txt_list.sort()
+    print(">>> 텍스트 파일 목록:", txt_list)
+
+    # 디렉토리 유무 검사 및 디렉토리 생성
+    try:
+        if not os.path.exists(tts_path):  # 디렉토리 없을 시 생성
+            os.makedirs(tts_path)
+    except OSError:
+        print('Error: Creating directory. ' + tts_path)  # 디렉토리 생성 오류
+
+    for idx, txt_file in enumerate(txt_list):
+        infile = txt_path + txt_file
+        f = open(infile, 'r', encoding='UTF-8')
+        sText = f.read()
+        f.close()
+
+        tts = gTTS(text=sText, lang='ko', slow=False)
+        tts.save(tts_path + "tts_" + set_Filenum_of_Name(idx+1) + ".mp3")
+
+        print(set_Filenum_of_Name(idx+1)+" MP3 file saved!")
+
+    print("[TTS 종료] TTS 변환을 종료합니다\n")
 
 # 의도한바와 같이 정렬될 수 있도록 파일번호 수정하여 반환하는 함수
 def set_Filenum_of_Name(filenum):
@@ -140,14 +167,23 @@ def ocr_img2txt():
         print(">>> >>>", slide, "슬라이드 OCR 변환")
         txtFile = open(txt_path + img_file[-7:-4] + ".txt", "w", -1, "utf-8")  # 번역한 내용을 저장할 텍스트 파일
 
-        # 해당 위치에 변환 텍스트 필터링 기능이 들어가야 함
-
         txtFile.write(img_file[-5:-4] + "번 슬라이드 해설 시작" + "\n" + "\n")
         result = pytesseract.image_to_string(img_file, lang=language)  # 언어 옵션(kor+eng) 지정 및 psm 옵션 지정 안함
         txtFile.write(result + "\n")
         txtFile.write(img_file[-5:-4] + "번 슬라이드 해설 끝")
 
         txtFile.close()
+
+        #텍스트 변환 필터링
+        txtfilter_open = open(txt_path + img_file[-7:-4] + ".txt", "r", -1, "utf-8")
+        pp = re.compile("[ㄱ-ㅣ가-힣A-Za-z0-9\s]")
+        txtfilter1 = txtfilter_open.read()
+        txtfilter1 = pp.findall(txtfilter1)
+        txtfilter1 = ''.join(txtfilter1)
+        txtfilter2 = re.sub('\\n+','\n',txtfilter1)
+        textfilter = re.sub('','',txtfilter2)
+        txtfilter_out = open(txt_path + img_file[-7:-4] + ".txt", "w", -1, "utf-8")
+        txtfilter_out.write(textfilter)
 
     print("[OCR 변환 종료] 슬라이드 이미지를 텍스트로 변환을 종료합니다\n")
 
@@ -231,6 +267,9 @@ if __name__ == '__main__':
 
     df['time'] = tf_timeline_list
 
+    txt2TTS()
+    time_list.append(tmp_times[0])
+
     total_sec = time.time() - total_start
     total_times = str(datetime.timedelta(seconds=total_sec)).split(".")
     time_list.append(total_times[0])
@@ -240,6 +279,7 @@ if __name__ == '__main__':
     print("■ 장면 추출 시간:", time_list[1])
     print("■ OCR 시간:", time_list[2])
     print("■ ORB 시간:", time_list[3])
-    print("■□■ 총 소요 시간:", time_list[4])
+    print("■ TTS 시간:", time_list[4])
+    print("■□■ 총 소요 시간:", time_list[5])
 
     df.to_csv(save_path, mode='w')
