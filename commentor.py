@@ -4,12 +4,15 @@ import sys
 import time
 import datetime
 import pandas as pd
-import numpy as np
 import re
 from pytesseract import *
 
+import shutil
+import moviepy.editor as mp
+
 from pdf2image import convert_from_path  # pdf2img
 from gtts import gTTS
+from pydub import AudioSegment
 
 pdf2image_module_path = "data/Release-21.03.0/poppler-21.03.0/Library/bin/"
 
@@ -23,10 +26,14 @@ from scenedetect.scene_manager import save_images, write_scene_list_html
 default_path = "Datamining/"
 pdf_path = default_path + "lecture_doc.pdf"
 video_path = default_path + "lecture_video.mp4"
+audio_path = default_path + "lecture_audio.mp3"
 capture_path = default_path + "capture/"
 slide_path = default_path + "slide/"
 txt_path = default_path + "txt/"
 tts_path = default_path + "tts/"
+
+mix_path = default_path + "mix/"
+lec_path = default_path + "lec/"
 
 # 최종 출력 파일
 df = pd.DataFrame()
@@ -71,7 +78,7 @@ def set_Filenum_of_Name(filenum):
     elif (filenum >= 100 and filenum < 1000):  # 파일번호가 세자리일때
         fileName = str(filenum)
     else:
-        sys.exit(">>> PDF 파일이 너무 큽니다 - 999장 이상")
+        sys.exit(">>> 파일이 너무 큽니다 - 999장 이상")
 
     return fileName
 
@@ -227,8 +234,86 @@ def capture_video():
     return captured_timeline_list
 
 
+def mix():
+    print("\n[lec과 tts 병합 시작] 원본 mp3파일과 TTS mp3파일 병합을 시작합니다")
+    tts_list = os.listdir(tts_path)
+    tts_list = [tts_file for tts_file in tts_list if tts_file.endswith(".mp3")]  # tts 가져오기
+    tts_list.sort()
+    print(">>> tts mp3 파일 목록:", tts_list)
+
+    lec_list = os.listdir(lec_path)
+    lec_list = [lec_file for lec_file in lec_list if lec_file.endswith(".mp3")]  # lec 가져오기
+    lec_list.sort()
+    print(">>> lec mp3 파일 목록:", lec_list)
+
+    combined = AudioSegment.from_mp3("./Datamining/lec/lec_001.mp3")
+
+    for i, tts_file in enumerate(tts_list):
+        tts_list[i] = AudioSegment.from_mp3("./Datamining/tts/" + "tts_" + set_Filenum_of_Name(i + 1) + ".mp3")
+
+        # tts mp3 file 10 dB lower
+        tts_list[i] = tts_list[i] - 10
+        lec_list[i] = AudioSegment.from_mp3("./Datamining/lec/" + "lec_" + set_Filenum_of_Name(i + 1) + ".mp3")
+
+        if (i != 0):
+            combined = combined + tts_list[i] + lec_list[i]
+        else:
+            combined = tts_list[i] + lec_list[i]
+
+        print(set_Filenum_of_Name(i + 1) + "번째 tts+lec MP3 mixed!")
+
+    try:
+        if not os.path.exists(mix_path):  # 디렉토리 없을 시 생성
+            os.makedirs(mix_path)
+    except OSError:
+        print('Error: Creating directory. ' + mix_path)  # 디렉토리 생성 오류
+
+    # simple export
+    file_handle = combined.export(mix_path + "mix.mp3", format="mp3")
+
+    print("[lec과 tts 병합 종료] 원본 mp3파일과 TTS mp3파일 병합을 종료합니다\n")
+
+def cutLectureMp3():
+    print("\n[lec 생성 시작] mp3 파일 변환 및 mp3 파일 CUT을 시작합니다")
+
+    print(">>> mp4 영상 → mp3 오디오 변환 시작")
+    #원본 강의 mp4영상을 mp3 형식으로 변환
+    clip = mp.VideoFileClip(video_path) #동영상 불러오기
+    clip.audio.write_audiofile("lecture_audio.mp3")  # mp3 파일로 변환
+    shutil.move("lecture_audio.mp3", audio_path) # mp3 파일을 원하는 디렉토리로 이동
+    print(">>> mp4 영상 → mp3 오디오 변환 완료")
+
+    print(">>> mp3 오디오 CUT 시작")
+    #원본 강의 mp3 파일을 전환 시간에 맞추어 cut
+    audio = AudioSegment.from_mp3(audio_path)
+    time_csv = pd.read_csv(save_path)
+
+    # 디렉토리 유무 검사 및 디렉토리 생성
+    try:
+        if not os.path.exists(lec_path):  # 디렉토리 없을 시 생성
+            os.makedirs(lec_path)
+    except OSError:
+        print('Error: Creating directory. ' + lec_path)  # 디렉토리 생성 오류
+
+    for i in range(len(time_csv["time"])):
+
+        fileName = "lec_" + set_Filenum_of_Name(i+1) + ".mp3"
+        fileName = lec_path + fileName
+
+        if i==(len(time_csv["time"])-1): #마지막 클립
+            result = audio[int(time_csv["time"][i]) * 1000:]
+            result.export(fileName, format='mp3')
+        else: #처음, 중간 클립
+            result = audio[int(time_csv["time"][i]) * 1000 : int(time_csv["time"][i+1]) * 1000]
+            result.export(fileName, format='mp3')
+
+        print(">>> >>>", i + 1, "번째 클립 mp3 파일 생성 완료")
+
+    print("\n[lec 생성 종료] mp3 파일 변환 및 mp3 파일 CUT을 종료합니다")
+
+
 if __name__ == '__main__':
-    time_list = []  # pdf 2 image, 장면 추출 시간, OCR 시간, ORB 유사도 시간, 총 시간
+    time_list = []  # pdf 2 image, 장면 추출 시간, OCR 시간, ORB 유사도 시간
     total_start = time.time()
 
     # PDF to Image
@@ -265,21 +350,44 @@ if __name__ == '__main__':
         print("[" + str(i + 1) + "번째 슬라이드 등장시간]", int(captured_timeline_list[idx_val] / 60), "분",
               round(captured_timeline_list[idx_val] % 60), "초")
 
-    df['time'] = tf_timeline_list
 
+    #################################################################################################
+    # 원활한 실험을 위해 임의적으로 값 변경(Datamining을 대상으로) - 추후에 장면전환 시간이 제대로 추출되도록 고쳐야함
+    tf_timeline_list[2] = 133
+    #################################################################################################
+    df['time'] = tf_timeline_list
+    df.to_csv(save_path, mode='w')
+
+    #txt 2 TTS 파일 생성
+    tmp_start = time.time()
     txt2TTS()
+    tmp_sec = time.time() - tmp_start
+    tmp_times = str(datetime.timedelta(seconds=tmp_sec)).split(".")
+    time_list.append(tmp_times[0])
+
+    # 원본 강의 영상을 mp3로 변환 및 전환 시점에 맞추어 cut
+    tmp_start = time.time()
+    cutLectureMp3()
+    tmp_sec = time.time() - tmp_start
+    tmp_times = str(datetime.timedelta(seconds=tmp_sec)).split(".")
+    time_list.append(tmp_times[0])
+
+    # 모든 오디오 파일 병합 - mix
+    tmp_start = time.time()
+    mix()
+    tmp_sec = time.time() - tmp_start
+    tmp_times = str(datetime.timedelta(seconds=tmp_sec)).split(".")
     time_list.append(tmp_times[0])
 
     total_sec = time.time() - total_start
     total_times = str(datetime.timedelta(seconds=total_sec)).split(".")
-    time_list.append(total_times[0])
 
-    # 장면 추출 시간, OCR 시간, ORB 유사도 시간, 총 시간
+    # 장면 추출 시간, OCR 시간, ORB 유사도 시간, CUT 시간, MIX 시간, 총 시간
     print("\n■ PDF2JPG 추출 시간:", time_list[0])
     print("■ 장면 추출 시간:", time_list[1])
     print("■ OCR 시간:", time_list[2])
     print("■ ORB 시간:", time_list[3])
     print("■ TTS 시간:", time_list[4])
-    print("■□■ 총 소요 시간:", time_list[5])
-
-    df.to_csv(save_path, mode='w')
+    print("■ mp3 변환 및 CUT 시간:", time_list[5])
+    print("■ MIX 시간:", time_list[6])
+    print("■□■ 총 소요 시간:", total_times[0])
